@@ -66,6 +66,7 @@ h1{font:800 clamp(28px,5vw,40px)/1 var(--font-display);letter-spacing:-.02em;mar
 .ans button{padding:0 10px;border:0;border-radius:8px;background:var(--cc,var(--fg));color:var(--on);font-weight:800;cursor:pointer}
 .solved{padding:11px 8px;border-radius:8px;background:var(--cc,var(--ok));color:var(--on);font-weight:800;text-align:center;text-transform:uppercase;letter-spacing:.04em;overflow-wrap:anywhere}
 .solved.given{background:transparent;color:var(--muted);border:2px dashed var(--line);text-transform:none;letter-spacing:0;font-weight:600}
+.board.locked .field.closed{opacity:.45;cursor:not-allowed}
 .shake{animation:shake .3s}
 @keyframes shake{25%{transform:translateX(-5px)}75%{transform:translateX(5px)}}
 
@@ -121,10 +122,11 @@ h1{font:800 clamp(28px,5vw,40px)/1 var(--font-display);letter-spacing:-.02em;mar
   <details class="rules">
     <summary>Pravila i bodovanje</summary>
     <ul>
-      <li>Otvaraj polja klikom. U svakoj koloni (A, B, C, D) četiri traga vode do rešenja kolone, a četiri rešenja vode do konačnog.</li>
+      <li>Tim na potezu otvara samo jedno polje, pa mora da pogodi rešenje kolone ili konačno rešenje. Tačan odgovor za kolonu donosi bodove i tim nastavlja da igra (opet otvara jedno polje). Netačan odgovor prebacuje potez drugom timu.</li>
+      <li>Polja se otvaraju klikom. U svakoj koloni (A, B, C, D) četiri traga vode do rešenja kolone, a četiri rešenja vode do konačnog.</li>
       <li>Tačno rešenje kolone nosi 2 boda plus po jedan bod za svako neotvoreno polje te kolone.</li>
       <li>Konačno rešenje nosi 5 bodova plus bodove svih kolona koje još nisu rešene.</li>
-      <li>Pogrešan odgovor prebacuje potez drugom timu. Slova č, ć, š, ž, đ možeš pisati i bez kvačica.</li>
+      <li>Slova č, ć, š, ž, đ možeš pisati i bez kvačica.</li>
     </ul>
   </details>
 </div>
@@ -149,12 +151,12 @@ let turn = 0;
 
 function load(idx){
   const g = DATA[idx];
-  S = { idx, g, open:[[0,0,0,0],[0,0,0,0],[0,0,0,0],[0,0,0,0]], solved:[0,0,0,0], fin:0, over:0 };
+  S = { idx, g, open:[[0,0,0,0],[0,0,0,0],[0,0,0,0],[0,0,0,0]], solved:[0,0,0,0], fin:0, over:0, opened:0 };
   $("num").value = idx+1;
   $("gameinfo").textContent = "Igra " + (idx+1) + " od " + DATA.length;
   $("again").hidden = true;
   $("reveal").hidden = false;
-  say("", "");
+  say("Na potezu je " + $("n"+turn).value + ". Otvori jedno polje, pa pogodi rešenje.", "");
   render();
 }
 
@@ -169,6 +171,13 @@ function setTurn(t){
   $("t0").classList.toggle("active", t===0);
   $("t1").classList.toggle("active", t===1);
 }
+function endTurn(){
+  S.opened = 0;
+  setTurn(1-turn);
+  updateLock();
+  return " Na potezu je " + $("n"+turn).value + ".";
+}
+function updateLock(){ $("board").classList.toggle("locked", !!S.opened); }
 function addScore(p){ score[turn]+=p; $("p0").textContent=score[0]; $("p1").textContent=score[1]; }
 
 function render(){
@@ -185,7 +194,11 @@ function render(){
       f.className = "field " + (isOpen ? "open" : "closed");
       f.textContent = isOpen ? S.g.c[c][r] : L[c] + (r+1);
       f.setAttribute("aria-label", isOpen ? "Polje " + L[c] + (r+1) + ": " + S.g.c[c][r] : "Otvori polje " + L[c] + (r+1));
-      if(!isOpen){ f.addEventListener("click", ()=>{ S.open[c][r]=1; render(); say("Otvoreno polje " + L[c] + (r+1) + ".",""); }); }
+      if(!isOpen){ f.addEventListener("click", ()=>{
+        if(S.opened){ say("Već si otvorio polje. Pogodi rešenje kolone ili konačno rešenje.", "bad"); return; }
+        S.opened = 1; S.open[c][r]=1; render();
+        say("Otvoreno polje " + L[c] + (r+1) + ". Sada pogodi rešenje kolone ili konačno rešenje.", "");
+      }); }
       else f.disabled = true;
       col.appendChild(f);
     }
@@ -193,6 +206,7 @@ function render(){
     board.appendChild(col);
   }
   renderFinal();
+  updateLock();
 }
 
 function answerBox(c){
@@ -217,15 +231,16 @@ function guessCol(c,val,w){
   if(norm(val)===norm(S.g.c[c][4])){
     const p = colPoints(c);
     S.solved[c]=1; addScore(p);
-    say("Tačno! Kolona " + L[c] + ": +" + bod(p), "ok");
+    S.opened = 0;
+    say("Tačno! Kolona " + L[c] + ": +" + bod(p) + ". " + $("n"+turn).value + " nastavlja: otvori sledeće polje.", "ok");
     render();
   } else wrong(w);
 }
 
 function wrong(w){
   w.classList.remove("shake"); void w.offsetWidth; w.classList.add("shake");
-  const next = 1-turn; setTurn(next);
-  say("Netačno. Na potezu je " + $("n"+next).value + ".", "bad");
+  const tail = endTurn();
+  say("Netačno." + tail, "bad");
 }
 
 function renderFinal(){
@@ -262,8 +277,8 @@ $("go").addEventListener("click", ()=>{
 $("num").addEventListener("keydown", e=>{ if(e.key==="Enter") $("go").click(); });
 function nextGame(){ pos=(pos+1)%order.length; load(order[pos]); }
 $("next").addEventListener("click", nextGame);
-$("again").addEventListener("click", ()=>{ nextGame(); setTurn(1-turn); });
-$("pass").addEventListener("click", ()=>{ setTurn(1-turn); say("Na potezu je " + $("n"+turn).value + ".",""); });
+$("again").addEventListener("click", ()=>{ setTurn(1-turn); nextGame(); });
+$("pass").addEventListener("click", ()=>{ const tail = endTurn(); say("Potez preskočen." + tail,""); });
 $("reveal").addEventListener("click", ()=>{ S.over=1; say("Sva rešenja su otkrivena.",""); render(); });
 
 setTurn(0);
